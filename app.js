@@ -12,6 +12,7 @@ const DEMO_TRACKS = [
 ];
 
 const STORAGE_KEY = "every-noise-roulette-v1";
+const TRACK_CACHE_VERSION = 2; // descarta escolhas antigas feitas sem validação musical
 const MAX_HISTORY = 24;
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -20,6 +21,7 @@ const ui = {
   playingDot: $("playing-dot"), spin: $("spin-button"), spinLabel: $("spin-label"),
   back: $("back-button"), restart: $("restart-button"), favorite: $("favorite-button"),
   favIcon: $("favorite-icon"), youtube: $("youtube-link"), video: $("video-frame"),
+  report: $("report-button"),
   total: $("total-genres"), discoveries: $("discovery-count"),
   history: $("history-list"), favorites: $("favorites-list"), note: $("catalog-note"),
 };
@@ -31,9 +33,10 @@ function storedState() {
       history: Array.isArray(parsed.history) ? parsed.history.filter(isValidTrack).slice(-MAX_HISTORY) : [],
       favorites: Array.isArray(parsed.favorites) ? parsed.favorites.filter(isValidTrack).slice(0, 100) : [],
       discoveries: Number.isSafeInteger(parsed.discoveries) && parsed.discoveries >= 0 ? parsed.discoveries : 0,
-      cache: parsed.cache && typeof parsed.cache === "object" && !Array.isArray(parsed.cache) ? parsed.cache : {},
+      cache: parsed.cacheVersion === TRACK_CACHE_VERSION && parsed.cache && typeof parsed.cache === "object" && !Array.isArray(parsed.cache) ? parsed.cache : {},
+      blockedVideos: Array.isArray(parsed.blockedVideos) ? parsed.blockedVideos.filter((id) => /^[A-Za-z0-9_-]{11}$/.test(id)).slice(-20) : [],
     };
-  } catch (_) { return { history: [], favorites: [], discoveries: 0, cache: {} }; }
+  } catch (_) { return { history: [], favorites: [], discoveries: 0, cache: {}, blockedVideos: [] }; }
 }
 function isValidTrack(track) {
   return track && typeof track.genre === "string" && typeof track.videoId === "string" && /^[A-Za-z0-9_-]{11}$/.test(track.videoId);
@@ -46,6 +49,7 @@ let cursor = history.length - 1;
 let favorites = saved.favorites;
 let discoveries = saved.discoveries;
 let videoCache = saved.cache;
+let blockedVideos = saved.blockedVideos;
 let current = null;
 let player = null;
 let playerReady = false;
@@ -58,6 +62,7 @@ function persist() {
     const entries = Object.entries(videoCache).slice(-125);
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       history, favorites, discoveries, cache: Object.fromEntries(entries),
+      cacheVersion: TRACK_CACHE_VERSION, blockedVideos,
     }));
   } catch (_) { /* O modo privado pode desativar armazenamento. */ }
 }
@@ -135,6 +140,7 @@ function updateFavorite() {
 }
 function updateControls() {
   ui.back.disabled = cursor <= 0 || busy;
+  ui.report.disabled = !current || busy;
   ui.restart.disabled = !current;
   ui.youtube.setAttribute("aria-disabled", String(!current));
   ui.youtube.href = current ? "https://www.youtube.com/watch?v=" + current.videoId : "https://www.youtube.com/";
@@ -196,8 +202,10 @@ function setBusy(value) {
 }
 async function findGenreVideo(genre) {
   const cached = videoCache[genre];
-  if (isValidTrack(cached)) return cached;
-  const res = await fetch("/api/search?genre=" + encodeURIComponent(genre), { headers: { Accept: "application/json" } });
+  if (isValidTrack(cached) && !blockedVideos.includes(cached.videoId)) return cached;
+  const params = new URLSearchParams({ genre });
+  if (blockedVideos.length) params.set("exclude", blockedVideos.join(","));
+  const res = await fetch("/api/search?" + params.toString(), { headers: { Accept: "application/json" } });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 503) throw new Error("API não configurada");
@@ -215,7 +223,9 @@ async function spin() {
   try {
     const recent = history.slice(-7).map((t) => t.genre);
     if (!apiEnabled) {
-      const demo = chooseRandom(DEMO_TRACKS, recent);
+      const availableDemos = DEMO_TRACKS.filter((track) => !blockedVideos.includes(track.videoId));
+      const demo = chooseRandom(availableDemos, recent);
+      if (!demo) { say("Não restaram músicas na demonstração. Configure a API do YouTube para continuar."); return; }
       setTrack(demo, true);
       return;
     }
@@ -250,6 +260,48 @@ function toggleFavorite() {
   renderLists();
   updateFavorite();
   persist();
+}
+async function reportNonMusic() {
+  if (!current || busy) return;
+  const rejected = current;
+  blockedVideos = [...new Set([...blockedVideos, rejected.videoId])].slice(-20);
+  for (const [genre, track] of Object.entries(videoCache)) {
+    if (track && track.videoId === rejected.videoId) delete videoCache[genre];
+  }
+  favorites = favorites.filter((track) => track.videoId !== rejected.videoId);
+  history = history.filter((track) => track.videoId !== rejected.videoId);
+  cursor = history.length - 1;
+  current = null;
+  requestedTrack = null;
+  stopPlayback();
+  ui.video.classList.remove("has-video");
+  ui.genre.textContent = rejected.genre;
+  ui.title.textContent = "Procurando outra música...";
+  ui.artist.textContent = "";
+  renderLists();
+  updateControls();
+  persist();
+  // O bloqueio é local ao navegador; o servidor recebe IDs a excluir.
+  if (!apiEnabled) {
+    say("Vídeo marcado como inadequado. Sorteando outro gênero...");
+    await spin();
+    return;
+  }
+  setBusy(true);
+  let found = false;
+  try {
+    say("Esse vídeo não será mostrado novamente neste navegador. Procurando outra faixa para “" + rejected.genre + "”...");
+    const replacement = await findGenreVideo(rejected.genre);
+    if (blockedVideos.includes(replacement.videoId)) throw new Error("Vídeo rejeitado");
+    setTrack(replacement, true);
+    found = true;
+    say("Outra faixa selecionada. Obrigado por sinalizar o vídeo!");
+  } catch (_) {
+    say("Nenhuma alternativa segura encontrada nesse gênero. Tentando outro...");
+  } finally {
+    setBusy(false);
+  }
+  if (!found) await spin();
 }
 function previous() {
   if (cursor < 1 || busy) return;
@@ -307,6 +359,7 @@ async function initialize() {
   ui.back.addEventListener("click", previous);
   ui.restart.addEventListener("click", restart);
   ui.favorite.addEventListener("click", toggleFavorite);
+  ui.report.addEventListener("click", reportNonMusic);
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
     if (event.target.closest("button, a, input, textarea, select")) return;
