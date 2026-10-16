@@ -20,7 +20,7 @@ const ui = {
   mode: $("mode-pill"), status: $("feedback"), playState: $("play-state"),
   playingDot: $("playing-dot"), spin: $("spin-button"), spinLabel: $("spin-label"),
   back: $("back-button"), restart: $("restart-button"), favorite: $("favorite-button"),
-  favIcon: $("favorite-icon"), youtube: $("youtube-link"), video: $("video-frame"),
+  favIcon: $("favorite-icon"), youtube: $("youtube-link"), genreLink: $("genre-link"), video: $("video-frame"),
   report: $("report-button"),
   total: $("total-genres"), discoveries: $("discovery-count"),
   history: $("history-list"), favorites: $("favorites-list"), note: $("catalog-note"),
@@ -54,6 +54,7 @@ let discoveries = saved.discoveries;
 let videoCache = saved.cache;
 let blockedVideos = saved.blockedVideos;
 let current = null;
+let selectedGenre = null;
 let player = null;
 let playerReady = false;
 let requestedTrack = null;
@@ -145,12 +146,18 @@ function updateFavorite() {
   ui.favorite.lastChild.textContent = selected ? " Favoritado" : " Favoritar";
 }
 function updateControls() {
-  ui.back.disabled = cursor <= 0 || busy;
+  ui.back.disabled = busy || (current ? cursor <= 0 : cursor < 0);
   ui.report.disabled = !current || busy;
   ui.restart.disabled = !current;
   ui.youtube.setAttribute("aria-disabled", String(!current));
   ui.youtube.href = current ? "https://www.youtube.com/watch?v=" + current.videoId : "https://www.youtube.com/";
   ui.youtube.style.pointerEvents = current ? "auto" : "none";
+  const shownGenre = current?.genre || selectedGenre;
+  const genreSlug = (shownGenre || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]/g, "");
+  ui.genreLink.href = genreSlug ? "https://everynoise.com/engenremap-" + genreSlug + ".html" : "https://everynoise.com/";
+  ui.genreLink.setAttribute("aria-disabled", String(!genreSlug));
+  ui.genreLink.style.pointerEvents = genreSlug ? "auto" : "none";
   updateFavorite();
 }
 function stopPlayback() {
@@ -179,6 +186,7 @@ function playTrack(track) {
 function setTrack(track, addHistory = true) {
   if (!isValidTrack(track)) return;
   stopPlayback();
+  selectedGenre = track.genre;
   current = { genre: track.genre, title: track.title || "Música encontrada", artist: track.artist || "", videoId: track.videoId, duration: Number(track.duration) || 0 };
   ui.genre.textContent = current.genre;
   ui.genre.classList.remove("switching");
@@ -235,11 +243,22 @@ async function spin() {
       setTrack(demo, true);
       return;
     }
+    stopPlayback();
+    current = null;
+    requestedTrack = null;
+    selectedGenre = null;
+    ui.video.classList.remove("has-video");
+    ui.title.textContent = "Procurando uma música...";
+    ui.artist.textContent = "";
+    ui.playState.textContent = "VALIDANDO AMOSTRA";
     const tested = [...recent];
     for (let attempt = 0; attempt < 4; attempt++) {
       const genre = chooseRandom(genres, tested);
       if (!genre) break;
       tested.push(genre);
+      selectedGenre = genre;
+      ui.genre.textContent = genre;
+      updateControls();
       say("Buscando uma música para “" + genre + "”...");
       try {
         const result = await findGenreVideo(genre);
@@ -255,7 +274,11 @@ async function spin() {
         }
       }
     }
-    say("Não encontramos uma faixa com associação confiável nesses sorteios. Clique novamente para explorar outros gêneros.");
+    ui.title.textContent = "Nenhuma amostra confiável encontrada.";
+    ui.artist.textContent = "Explore o gênero no Every Noise ou sorteie novamente.";
+    ui.playState.textContent = "SEM AMOSTRA VALIDADA";
+    updateControls();
+    say("Ainda não conseguimos associar uma faixa a esses gêneros. Você pode explorar o último no Every Noise ou continuar sorteando.");
   } catch (_) {
     say("Ocorreu um erro ao sortear. Tente novamente.");
   } finally { setBusy(false); }
@@ -312,8 +335,8 @@ async function reportNonMusic() {
   if (!found) await spin();
 }
 function previous() {
-  if (cursor < 1 || busy) return;
-  cursor -= 1;
+  if (busy || cursor < 0 || (current && cursor < 1)) return;
+  if (current) cursor -= 1;
   setTrack(history[cursor], false);
   say("Voltando para sua descoberta anterior.");
 }
