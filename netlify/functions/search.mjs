@@ -91,7 +91,7 @@ export default async function handler(request) {
       videoEmbeddable: "true",
       videoSyndicated: "true",
       safeSearch: "moderate",
-      q: '"' + genre + '" "official audio" | "official music video" | "topic"',
+      q: '"' + genre + '" music official audio',
     }, key);
     const ids = (search.items || []).map((item) => item.id?.videoId).filter((id) => /^[A-Za-z0-9_-]{11}$/.test(id || ""));
     if (!ids.length) return json({ error: "Sem exemplos musicais disponíveis para esse gênero." }, 404);
