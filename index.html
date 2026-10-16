@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0c12" />
+  <meta name="description" content="Uma roleta para descobrir gêneros musicais que você jamais procuraria. Sorteie, escute e descubra." />
+  <title>EveryNoiseRoulette — Escute o inesperado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="https://www.youtube.com/iframe_api" async></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-a" aria-hidden="true"></div>
+  <div class="ambient ambient-b" aria-hidden="true"></div>
+  <div class="texture" aria-hidden="true"></div>
+
+  <header class="site-header wrap">
+    <a class="brand" href="./" aria-label="EveryNoiseRoulette, início">
+      <span class="brand-disc" aria-hidden="true"><span></span></span>
+      <span>EVERY<span class="brand-light">NOISE</span><b>ROULETTE</b></span>
+    </a>
+    <nav class="top-links" aria-label="Navegação">
+      <span class="live-pill"><span></span> DESCUBERTA ATIVA</span>
+      <a href="#sobre">Como funciona <span aria-hidden="true">↗</span></a>
+      <a href="https://github.com/jquinteiroo/EveryNoiseRoulette" rel="noopener noreferrer" target="_blank">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero" aria-label="Descubra músicas aleatoriamente">
+      <div class="hero-copy">
+        <p class="overline"><span class="mini-asterisk">✳</span> UMA VIAGEM POR TODOS OS SONS</p>
+        <h1>Escute o<br /><em>inesperado<span>.</span></em></h1>
+        <p class="lead">Milhares de gêneros musicais. Nenhuma busca, nenhum algoritmo de recomendação. Só você e a sorte.</p>
+        <div class="hero-insight">
+          <div class="eyebrow-line"><span class="pulse-dot"></span> A PRÓXIMA DESCOBERTA É SUA</div>
+          <p>Clique para sortear um gênero e ouça uma faixa a partir de um trecho que revela seu som.</p>
+        </div>
+        <div class="metric-row">
+          <div class="metric"><strong id="total-genres">—</strong><span>GÊNEROS MAPEADOS</span></div>
+          <span class="metric-separator" aria-hidden="true"></span>
+          <div class="metric"><strong id="discovery-count">00</strong><span>SUAS DESCOBERTAS</span></div>
+        </div>
+      </div>
+
+      <section class="deck" aria-label="Roleta e player musical">
+        <div class="deck-top">
+          <div class="deck-top-left"><span class="deck-index">01 / THE ROULETTE</span><span class="deck-dot"></span></div>
+          <span class="mode-pill" id="mode-pill">INICIANDO</span>
+        </div>
+        <div class="track-intro">
+          <p class="kicker">AGORA DESCOBRINDO <span aria-hidden="true">↘</span></p>
+          <h2 id="genre-title">O próximo som é<br />uma surpresa.</h2>
+          <div class="track-labels"><span id="track-title">Pronto para sua primeira viagem?</span><span id="track-artist"></span></div>
+        </div>
+
+        <div class="video-frame" id="video-frame">
+          <div id="youtube-player" aria-label="Player de vídeo do YouTube"></div>
+          <div class="preview-art" id="preview-art" aria-hidden="true">
+            <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+            <div class="record"><div class="record-inner"></div><div class="record-center"></div></div>
+            <div class="spark spark-a">✳</div><div class="spark spark-b">✦</div>
+            <span>EVERY NOISE / ANY SOUND</span>
+          </div>
+        </div>
+        <div class="player-foot">
+          <span><span class="playing-dot" id="playing-dot"></span> <span id="play-state">AGUARDANDO SORTEIO</span></span>
+          <span class="player-disclaimer">PLAYER OFICIAL DO YOUTUBE</span>
+        </div>
+        <div class="primary-actions">
+          <button class="spin-button" id="spin-button" type="button"><span class="dice" aria-hidden="true">✳</span> <span id="spin-label">SORTEAR UM GÊNERO</span> <span class="arrow" aria-hidden="true">↗</span></button>
+          <button class="small-button" id="back-button" type="button" aria-label="Voltar à descoberta anterior" title="Descoberta anterior" disabled>←</button>
+        </div>
+        <div class="secondary-actions">
+          <button id="restart-button" class="text-button" type="button" disabled><span aria-hidden="true">↺</span> Ouvir do início</button>
+          <button id="favorite-button" class="text-button" type="button" aria-pressed="false" disabled><span id="favorite-icon" aria-hidden="true">♡</span> Favoritar</button>
+          <a id="youtube-link" class="text-button external" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer" aria-disabled="true">Ver no YouTube ↗</a>
+        </div>
+        <p class="feedback" id="feedback" role="status" aria-live="polite">Preparando a sua roleta...</p>
+      </section>
+    </section>
+
+    <section class="collections" aria-label="Descobertas e favoritos">
+      <div class="collection-heading"><div><p class="overline">SEU RASTRO MUSICAL</p><h2>Os sons que ficaram.</h2></div><span class="caption-right">SALVOS NESTE NAVEGADOR</span></div>
+      <div class="collection-grid">
+        <section class="collection-panel"><div class="panel-title"><h3>Últimas descobertas</h3><span aria-hidden="true">↗</span></div><div id="history-list" class="track-list"><p class="empty-state">Suas descobertas vão aparecer aqui depois do primeiro sorteio.</p></div></section>
+        <section class="collection-panel"><div class="panel-title"><h3>Seus favoritos</h3><span aria-hidden="true">♥</span></div><div id="favorites-list" class="track-list"><p class="empty-state">Curtiu um gênero? Toque em Favoritar e guarde essa descoberta.</p></div></section>
+      </div>
+    </section>
+    <section id="sobre" class="about">
+      <div><p class="overline">SEM ROTAS PREDEFINIDAS</p><h2>Não procure.<br /><span>Encontre.</span></h2></div>
+      <div class="about-body">
+        <p>Inspirado no mapa de gêneros do <a href="https://everynoise.com/" target="_blank" rel="noopener noreferrer">Every Noise at Once</a>. A roleta escolhe o estilo. O YouTube apresenta uma faixa, sem sair daqui.</p>
+        <p id="catalog-note">O modo inicial é uma demonstração com músicas selecionadas; a busca automática de gêneros pode ser ativada na implantação.</p>
+        <p class="about-fine">Projeto independente. Não afiliado ao Every Noise nem ao YouTube. Os vídeos pertencem aos respectivos titulares.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer wrap"><span>EVERYNOISEROULETTE © 2026</span><span>FEITO PARA QUEM AMA DESCOBRIR.</span><a href="https://github.com/Geeoon/EveryNoise-Genre-JSON" target="_blank" rel="noopener noreferrer">FONTE DOS GÊNEROS ↗</a></footer>
+</body>
+</html>
