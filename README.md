@@ -13,6 +13,7 @@ Descubra gêneros musicais no acaso: aperte **Sortear**, conheça um gênero e o
 - A busca agora exige categoria Música e indícios de faixa publicada (canal - Topic, áudio ou videoclipe oficial). Vídeos sobre discos, reviews, entrevistas e coletâneas são rejeitados.
 - O botão **Não é música** bloqueia aquele vídeo neste navegador e tenta outro resultado. O bloqueio ainda não é compartilhado com outros usuários.
 - A seleção conservadora pode não encontrar uma música para alguns gêneros; metadados não garantem classificação perfeita.
+- A base piloto atualmente cobre **63 gêneros**, com **197 associações artista–gênero**; a meta é ampliar a cobertura de forma verificável antes de habilitar o catálogo inteiro.
 
 ## Rodar localmente
 
@@ -24,7 +25,7 @@ python -m http.server 8000
 
 Acesse `http://localhost:8000`. Não use `file://`, pois o navegador pode impedir a leitura de `data/genres.json`. **Sem uma função de backend, o sorteio fica restrito às músicas demonstrativas verificadas.**
 
-## Implantar no Netlify e liberar todos os gêneros
+## Implantar no Netlify e liberar o sorteio com curadoria de artistas
 
 1. Importe este repositório no Netlify. O projeto não precisa de comando de build; o diretório de publicação é `.`.
 2. Crie uma chave no Google Cloud com a **YouTube Data API v3** ativada.
