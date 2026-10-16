@@ -12,7 +12,7 @@ const DEMO_TRACKS = [
 ];
 
 const STORAGE_KEY = "every-noise-roulette-v1";
-const TRACK_CACHE_VERSION = 2; // descarta escolhas antigas feitas sem validação musical
+const TRACK_CACHE_VERSION = 3; // invalida escolhas antigas baseadas só no nome do gênero
 const MAX_HISTORY = 24;
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -30,7 +30,7 @@ function storedState() {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     return {
-      history: Array.isArray(parsed.history) ? parsed.history.filter(isValidTrack).slice(-MAX_HISTORY) : [],
+      history: parsed.cacheVersion === TRACK_CACHE_VERSION && Array.isArray(parsed.history) ? parsed.history.filter(isValidTrack).slice(-MAX_HISTORY) : [],
       favorites: Array.isArray(parsed.favorites) ? parsed.favorites.filter(isValidTrack).slice(0, 100) : [],
       discoveries: Number.isSafeInteger(parsed.discoveries) && parsed.discoveries >= 0 ? parsed.discoveries : 0,
       cache: parsed.cacheVersion === TRACK_CACHE_VERSION && parsed.cache && typeof parsed.cache === "object" && !Array.isArray(parsed.cache) ? parsed.cache : {},
@@ -43,6 +43,7 @@ function isValidTrack(track) {
 }
 const saved = storedState();
 let genres = DEMO_TRACKS.map((track) => track.genre);
+let catalogSize = 5925; // Atualizado com a quantidade real no arquivo local.
 let apiEnabled = false;
 let history = saved.history;
 let cursor = history.length - 1;
@@ -69,14 +70,15 @@ function persist() {
 function say(message) { ui.status.textContent = message; }
 function formatNumber(n) { return new Intl.NumberFormat("pt-BR").format(n); }
 function updateCounts() {
-  ui.total.textContent = formatNumber(genres.length);
+  ui.total.textContent = formatNumber(apiEnabled ? genres.length : DEMO_TRACKS.length);
   ui.discoveries.textContent = String(discoveries).padStart(2, "0");
 }
 function updateMode() {
-  ui.mode.textContent = apiEnabled ? "CATÁLOGO COMPLETO" : "MODO DEMONSTRAÇÃO";
+  ui.mode.textContent = apiEnabled ? "CURADORIA POR ARTISTA" : "MODO DEMONSTRAÇÃO";
   ui.note.textContent = apiEnabled
-    ? "O catálogo inteiro está disponível para sorteio. Os exemplos do YouTube são encontrados automaticamente e podem nem sempre representar o gênero com precisão."
-    : "Demonstração com seis músicas selecionadas. Com a chave da API do YouTube configurada no Netlify, o sorteio pode explorar os 5.925 gêneros.";
+    ? "A base original reúne " + formatNumber(catalogSize) + " gêneros. Nesta fase, " + formatNumber(genres.length) + " têm artistas associados para evitar resultados apenas por coincidência de nome. A associação com um artista não garante que todas as músicas dele pertençam exatamente ao gênero."
+    : "Demonstração com seis músicas selecionadas. A busca por artistas associados ao gênero pode ser ativada com a chave do YouTube no Netlify.";
+  updateCounts();
 }
 function chooseRandom(items, avoid = []) {
   const excluded = new Set(avoid.map((name) => String(name).toLowerCase()));
@@ -212,7 +214,7 @@ async function findGenreVideo(genre) {
     throw new Error(json.error || "Não encontramos vídeo para esse gênero.");
   }
   const track = { genre, title: json.title, artist: json.artist, videoId: json.videoId, duration: json.duration };
-  if (!isValidTrack(track)) throw new Error("Resposta inválida da busca.");
+  if (!isValidTrack(track) || json.matchMethod !== "genre-artist") throw new Error("Resposta sem validação do artista.");
   videoCache[genre] = track;
   persist();
   return track;
@@ -371,7 +373,7 @@ async function initialize() {
     if (!result.ok) throw new Error("Catálogo inacessível");
     const catalog = await result.json();
     if (Array.isArray(catalog.genres) && catalog.genres.length > 1000) {
-      genres = catalog.genres.filter((genre) => typeof genre === "string" && genre.length < 90);
+      catalogSize = catalog.genres.length;
     }
   } catch (_) {
     say("Não foi possível carregar todos os gêneros. O modo demonstrativo segue disponível.");
@@ -381,12 +383,13 @@ async function initialize() {
     const response = await fetch("/api/status", { headers: { Accept: "application/json" } });
     if (response.ok) {
       const info = await response.json();
-      apiEnabled = info.youtubeConfigured === true;
+      apiEnabled = info.youtubeConfigured === true && Array.isArray(info.playableGenres) && info.playableGenres.length > 0;
+      if (apiEnabled) genres = info.playableGenres.filter((name) => typeof name === "string");
     }
   } catch (_) { /* Sem backend: roda com os exemplos selecionados. */ }
   updateMode();
   say(apiEnabled
-    ? "Tudo pronto! Sorteie um dos gêneros do catálogo completo."
+    ? "Tudo pronto! Agora escolhemos um artista associado ao gênero antes de buscar a música."
     : "Tudo pronto! Experimente a versão demonstrativa com seis músicas.");
 }
 initialize();
