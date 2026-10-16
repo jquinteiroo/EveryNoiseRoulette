@@ -1,11 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { evaluateMusicVideo } from "../netlify/functions/search.mjs";
+import { GENRE_ARTISTS } from "../netlify/functions/genre-artists.mjs";
 
-function video({
-  title, channel = "Canal", description = "", categoryId = "10",
-  embeddable = true, privacyStatus = "public", duration = "PT4M20S",
-} = {}) {
+function video({ title, channel = "Canal", description = "", categoryId = "10",
+  embeddable = true, privacyStatus = "public", duration = "PT4M20S" } = {}) {
   return {
     id: "abcdefghijk",
     snippet: { title, channelTitle: channel, description, categoryId, liveBroadcastContent: "none" },
@@ -14,57 +13,45 @@ function video({
   };
 }
 
-test("regressão: US Power Metal Gems é conteúdo sobre discos, não uma faixa", () => {
-  assert.equal(evaluateMusicVideo(video({
-    title: "US Power Metal Gems 💎",
-    channel: "Vampire Choir",
-    description: "Official music video and metal records",
-  }), "us power metal"), null);
+test("regressão: Fiji (reggae) não é aceito como Simi Rova (fijian pop)", () => {
+  const wrong = video({ title: "Fiji - Sweet Darlin' (Official Lyric Video)", channel: "Fiji" });
+  assert.equal(evaluateMusicVideo(wrong, "Simi Rova"), null);
+  assert.ok(!GENRE_ARTISTS["fijian pop"].includes("Fiji"));
 });
 
-test("aceita uma faixa enviada para canal Topic", () => {
-  const picked = evaluateMusicVideo(video({
-    title: "Through the Fire and Flames",
-    channel: "DragonForce - Topic",
-    description: "Provided to YouTube by a music distributor",
-  }), "power metal");
-  assert.equal(picked.videoId, "abcdefghijk");
+test("regressão: Country Dawn - Release - Topic não é Kacey Musgraves", () => {
+  const wrong = video({ title: "Country Dawn", channel: "Release - Topic", description: "Provided to YouTube by ..." });
+  assert.equal(evaluateMusicVideo(wrong, "Kacey Musgraves"), null);
 });
 
-test("aceita videoclipe oficial", () => {
-  const picked = evaluateMusicVideo(video({
-    title: "The Killers - Mr. Brightside (Official Music Video)",
-    channel: "TheKillersVEVO",
-  }), "indie rock");
-  assert.ok(picked);
+test("canal Topic de artista mapeado passa", () => {
+  const good = video({ title: "Space Cowboy", channel: "Kacey Musgraves - Topic", description: "Provided to YouTube by label" });
+  assert.equal(evaluateMusicVideo(good, "Kacey Musgraves")?.artist, "Kacey Musgraves");
 });
 
-test("rejeita entrevistas e comentários mesmo na categoria Música", () => {
-  assert.equal(evaluateMusicVideo(video({
-    title: "Power Metal - music review",
-    channel: "MetalFan",
-    description: "Official audio included",
-  }), "power metal"), null);
+test("canal oficial / crédito de título com áudio oficial passam", () => {
+  const good = video({ title: "The Killers - Mr. Brightside (Official Music Video)", channel: "TheKillersVEVO" });
+  assert.equal(evaluateMusicVideo(good, "The Killers")?.videoId, "abcdefghijk");
 });
 
-test("rejeita vídeo sem evidência de lançamento musical", () => {
-  assert.equal(evaluateMusicVideo(video({
-    title: "US Power Metal Gems",
-    channel: "Vampire Choir",
-  }), "us power metal"), null);
+test("não aceita vídeo de colecionador mesmo contendo artista no título", () => {
+  const wrong = video({ title: "Kacey Musgraves - Vinyl Record Collection Gems", channel: "Kacey Musgraves - Topic" });
+  assert.equal(evaluateMusicVideo(wrong, "Kacey Musgraves"), null);
 });
 
-test("rejeita outras categorias e vídeos não incorporáveis", () => {
-  assert.equal(evaluateMusicVideo(video({
-    title: "Band - Song (Official Audio)", categoryId: "22",
-  }), "rock"), null);
-  assert.equal(evaluateMusicVideo(video({
-    title: "Band - Song (Official Audio)", embeddable: false,
-  }), "rock"), null);
+test("categoria não musical, privado e não incorporável são recusados", () => {
+  const base = { title: "Kacey Musgraves - Slow Burn (Official Audio)", channel: "Kacey Musgraves" };
+  assert.equal(evaluateMusicVideo(video({ ...base, categoryId: "22" }), "Kacey Musgraves"), null);
+  assert.equal(evaluateMusicVideo(video({ ...base, embeddable: false }), "Kacey Musgraves"), null);
+  assert.equal(evaluateMusicVideo(video({ ...base, privacyStatus: "private" }), "Kacey Musgraves"), null);
 });
 
-test("rejeita durações longas, típicas de coletâneas", () => {
-  assert.equal(evaluateMusicVideo(video({
-    title: "Band - Song (Official Audio)", duration: "PT1H10M",
-  }), "rock"), null);
+test("não aceita coletâneas e vídeos longos", () => {
+  const wrong = video({ title: "Kacey Musgraves - Song (Official Audio)", channel: "Kacey Musgraves", duration: "PT1H12M" });
+  assert.equal(evaluateMusicVideo(wrong, "Kacey Musgraves"), null);
+});
+
+test("a curadoria contém artistas de ambos os gêneros problemáticos", () => {
+  assert.ok(GENRE_ARTISTS["fijian pop"].includes("Simi Rova"));
+  assert.ok(GENRE_ARTISTS["country dawn"].includes("LeAnn Rimes"));
 });
