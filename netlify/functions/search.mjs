@@ -1,5 +1,6 @@
 // Nunca exponha YOUTUBE_API_KEY no frontend: todas as consultas passam pelo Netlify.
 import { GENRE_ARTISTS } from "./genre-artists.mjs";
+import { getGenreArtistsFromEveryNoise } from "./every-noise-artists.mjs";
 
 const cache = new Map();
 const TTL = 12 * 60 * 60 * 1000;
@@ -116,17 +117,32 @@ export default async function handler(request) {
 
   const url = new URL(request.url);
   const genre = (url.searchParams.get("genre") || "").trim().toLowerCase();
-  if (!Object.hasOwn(GENRE_ARTISTS, genre)) {
-    return json({ error: "Este gênero ainda não tem artistas associados à nossa curadoria." }, 422);
+  // Aceita qualquer gênero do catálogo: para os não mapeados localmente,
+  // tenta obter artistas diretamente da página de gênero do Every Noise.
+  if (!genre || genre.length > 85 || !/^[\p{L}\p{N}\s&+.,\/'()!-]+$/u.test(genre)) {
+    return json({ error: "Gênero inválido." }, 400);
   }
   const excluded = new Set((url.searchParams.get("exclude") || "")
     .split(",").filter((id) => /^[A-Za-z0-9_-]{11}$/.test(id)).slice(0, 20));
   const stored = cache.get(genre);
   if (stored && Date.now() - stored.at < TTL && !excluded.has(stored.track.videoId)) return json(stored.track);
   try {
-    // Consulta por ARTISTA do gênero; nunca pelo texto do nome do gênero.
-    // Duas tentativas no máximo para controlar a cota da YouTube Data API.
-    for (const artist of randomizedArtists(GENRE_ARTISTS[genre]).slice(0, 2)) {
+    const hasManualMap = Object.hasOwn(GENRE_ARTISTS, genre);
+    const artists = hasManualMap
+      ? GENRE_ARTISTS[genre]
+      : await getGenreArtistsFromEveryNoise(genre);
+    if (!artists.length) {
+      return json({
+        error: "Não foi possível confirmar artistas associados a esse gênero. Tente outro sorteio.",
+        genre,
+        genrePage: "https://everynoise.com/engenremap-" +
+          genre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "") + ".html",
+      }, 404);
+    }
+    // O nome do gênero não basta: somente tocamos vídeos creditados a um
+    // artista que o Every Noise ou a curadoria associaram a ele.
+    // Até duas consultas, para limitar a cota do YouTube.
+    for (const artist of randomizedArtists(artists).slice(0, 2)) {
       const result = await searchArtist(artist, excluded, key);
       if (!result) continue;
       const track = {
@@ -136,12 +152,13 @@ export default async function handler(request) {
         duration: result.duration,
         matchedArtist: artist,
         matchMethod: "genre-artist",
+        artistSource: hasManualMap ? "curated" : "every-noise",
       };
       cache.set(genre, { at: Date.now(), track });
       if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
       return json(track);
     }
-    return json({ error: "Não foi encontrada uma faixa confiável. Sorteie outro gênero." }, 404);
+    return json({ error: "Não foi encontrada uma faixa confiável dos artistas associados. Sorteie outro gênero." }, 404);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Erro temporário no YouTube." }, 502);
   }
