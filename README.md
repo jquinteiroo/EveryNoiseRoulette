@@ -10,6 +10,9 @@ Descubra gêneros musicais no acaso: aperte **Sortear**, conheça um gênero e o
 - Modo demonstração com uma pequena seleção de vídeos públicos identificados manualmente, sem chave de API.
 - Modo catálogo completo com busca dinâmica de vídeo quando `YOUTUBE_API_KEY` é configurada em uma implantação Netlify.
 - Histórico e favoritos no `localStorage`. Reprodução não é garantida: o navegador e os detentores dos vídeos podem bloquear embeds, anúncios e autoplay.
+- A busca agora exige categoria Música e indícios de faixa publicada (canal - Topic, áudio ou videoclipe oficial). Vídeos sobre discos, reviews, entrevistas e coletâneas são rejeitados.
+- O botão **Não é música** bloqueia aquele vídeo neste navegador e tenta outro resultado. O bloqueio ainda não é compartilhado com outros usuários.
+- A seleção conservadora pode não encontrar uma música para alguns gêneros; metadados não garantem classificação perfeita.
 
 ## Rodar localmente
 
@@ -30,6 +33,16 @@ Acesse `http://localhost:8000`. Não use `file://`, pois o navegador pode impedi
 
 Para testar funções localmente, rode `npx netlify-cli dev`, a partir da raiz do projeto, com a variável de ambiente configurada. A busca dinâmica consome cota do YouTube e resultados podem não corresponder perfeitamente ao gênero; é uma primeira versão que deverá receber curadoria. A chave da API precisa ter as restrições apropriadas no Google Cloud.
 
+## Testes
+
+Execute com Node.js 18+:
+
+```bash
+node --test tests/*.test.mjs
+```
+
+O teste de regressão inclui o exemplo US Power Metal Gems, que é um vídeo sobre discos, e casos de faixas oficiais.
+
 ## Arquitetura
 
 ```text
@@ -40,6 +53,7 @@ data/genres.json
 netlify.toml
 netlify/functions/status.mjs
 netlify/functions/search.mjs
+tests/search.test.mjs
 ```
 
 O navegador carrega os gêneros do arquivo local. O sorteio escolhe uma entrada disponível; com backend configurado, `/api/search?genre=...` busca até cinco vídeos incorporáveis na API do YouTube e recebe sua duração. Sem backend, o modo demonstrativo usa IDs previamente selecionados. O player é a **YouTube IFrame Player API**, nunca áudio extraído ou reprodução invisível.
