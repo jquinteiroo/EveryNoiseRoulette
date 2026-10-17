@@ -50,28 +50,50 @@ export function everyNoisePageForGenre(genre) {
   if (!slug || slug.length > 100) return null;
   return "https://everynoise.com/engenremap-" + slug + ".html";
 }
-export async function getGenreArtistsFromEveryNoise(genre) {
+
+function cloneResult(value) { return { artists: [...value.artists], source: value.source, reason: value.reason }; }
+
+// Retorna um diagnóstico em vez de mascarar qualquer falha como gênero sem artistas.
+export async function resolveGenreArtists(genre) {
   const now = Date.now();
   const cached = artistCache.get(genre);
-  if (cached && now - cached.at < (cached.artists.length ? OK_TTL : ERROR_TTL)) return cached.artists;
-  const url = everyNoisePageForGenre(genre);
-  if (!url) return [];
-  try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(6000),
-      headers: { Accept: "text/html" },
-      redirect: "error",
-    });
-    if (!response.ok || !(response.headers.get("content-type") || "").includes("text/html")) return [];
-    const html = await response.text();
-    if (html.length > 3_000_000) return [];
-    const artists = parseArtistsFromGenrePage(html);
-    artistCache.set(genre, { at: now, artists });
-    if (artistCache.size > MAX_CACHE) artistCache.delete(artistCache.keys().next().value);
-    return artists;
-  } catch (_) {
-    artistCache.set(genre, { at: now, artists: [] });
-    if (artistCache.size > MAX_CACHE) artistCache.delete(artistCache.keys().next().value);
-    return [];
+  if (cached && now - cached.at < (cached.artists.length ? OK_TTL : ERROR_TTL)) return cloneResult(cached);
+  const original = everyNoisePageForGenre(genre);
+  if (!original) return { artists: [], source: null, reason: "invalid_genre" };
+  const pathname = new URL(original).pathname.split("/").pop();
+  // Mirror pública histórica do próprio domínio do autor. Não contorna bloqueios
+  // intencionais, nem tenta serviços não autorizados.
+  const sources = [original, "https://www.furia.com/everynoise_public/" + pathname];
+  const failures = [];
+  for (const source of sources) {
+    try {
+      const response = await fetch(source, {
+        signal: AbortSignal.timeout(2800),
+        headers: { Accept: "text/html" },
+        redirect: "error",
+      });
+      if (!response.ok) { failures.push("http_" + response.status); continue; }
+      if (!(response.headers.get("content-type") || "").includes("text/html")) {
+        failures.push("invalid_content"); continue;
+      }
+      const html = await response.text();
+      if (html.length > 3_000_000) { failures.push("oversized_page"); continue; }
+      const artists = parseArtistsFromGenrePage(html);
+      if (artists.length) {
+        const result = { artists, source: source === original ? "everynoise" : "author-archive", reason: null, at: now };
+        artistCache.set(genre, result);
+        if (artistCache.size > MAX_CACHE) artistCache.delete(artistCache.keys().next().value);
+        return cloneResult(result);
+      }
+      failures.push("unrecognized_html");
+    } catch (_) { failures.push("unreachable"); }
   }
+  const result = { artists: [], source: null, reason: failures.join(","), at: now };
+  artistCache.set(genre, result);
+  if (artistCache.size > MAX_CACHE) artistCache.delete(artistCache.keys().next().value);
+  return cloneResult(result);
+}
+
+export async function getGenreArtistsFromEveryNoise(genre) {
+  return (await resolveGenreArtists(genre)).artists;
 }
