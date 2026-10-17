@@ -21,7 +21,7 @@ const ui = {
   playingDot: $("playing-dot"), spin: $("spin-button"), spinLabel: $("spin-label"),
   back: $("back-button"), restart: $("restart-button"), favorite: $("favorite-button"),
   favIcon: $("favorite-icon"), youtube: $("youtube-link"), genreLink: $("genre-link"), video: $("video-frame"),
-  report: $("report-button"),
+  report: $("report-button"), demo: $("demo-button"),
   total: $("total-genres"), discoveries: $("discovery-count"),
   history: $("history-list"), favorites: $("favorites-list"), note: $("catalog-note"),
 };
@@ -147,6 +147,7 @@ function updateFavorite() {
 }
 function updateControls() {
   ui.back.disabled = busy || (current ? cursor <= 0 : cursor < 0);
+  ui.demo.disabled = busy;
   ui.report.disabled = !current || busy;
   ui.restart.disabled = !current;
   ui.youtube.setAttribute("aria-disabled", String(!current));
@@ -222,8 +223,9 @@ async function findGenreVideo(genre) {
   const res = await fetch("/api/search?" + params.toString(), { headers: { Accept: "application/json" } });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    if (res.status === 503) throw new Error("API não configurada");
-    throw new Error(json.error || "Não encontramos vídeo para esse gênero.");
+    const error = new Error(json.error || "Não encontramos vídeo para esse gênero.");
+    error.code = json.code || (res.status === 503 ? "YOUTUBE_NOT_CONFIGURED" : "SEARCH_FAILED");
+    throw error;
   }
   const track = { genre, title: json.title, artist: json.artist, videoId: json.videoId, duration: json.duration };
   if (!isValidTrack(track) || json.matchMethod !== "genre-artist") throw new Error("Resposta sem validação do artista.");
@@ -237,10 +239,7 @@ async function spin() {
   try {
     const recent = [...history.slice(-7).map((t) => t.genre), ...failedGenres];
     if (!apiEnabled) {
-      const availableDemos = DEMO_TRACKS.filter((track) => !blockedVideos.includes(track.videoId));
-      const demo = chooseRandom(availableDemos, recent);
-      if (!demo) { say("Não restaram músicas na demonstração. Configure a API do YouTube para continuar."); return; }
-      setTrack(demo, true);
+      playDemo(recent);
       return;
     }
     stopPlayback();
@@ -252,36 +251,70 @@ async function spin() {
     ui.artist.textContent = "";
     ui.playState.textContent = "VALIDANDO AMOSTRA";
     const tested = [...recent];
-    for (let attempt = 0; attempt < 4; attempt++) {
+    let lastError = null;
+    let withoutArtists = 0;
+    // Se o Every Noise não responder, tentamos mais gêneros, sem gastar
+    // consultas do YouTube. Uma falha na API encerra imediatamente o clique.
+    for (let attempt = 0; attempt < 3; attempt++) {
       const genre = chooseRandom(genres, tested);
       if (!genre) break;
       tested.push(genre);
       selectedGenre = genre;
       ui.genre.textContent = genre;
       updateControls();
-      say("Buscando uma música para “" + genre + "”...");
+      say("Buscando artistas associados a “" + genre + "”...");
       try {
-        const result = await findGenreVideo(genre);
-        setTrack(result, true);
+        const track = await findGenreVideo(genre);
+        setTrack(track, true);
         return;
-      } catch (err) {
-        if (!String(err.message).includes("não configurada")) failedGenres.add(genre);
+      } catch (error) {
+        lastError = error;
+        failedGenres.add(genre);
         if (failedGenres.size > 200) failedGenres.delete(failedGenres.values().next().value);
-        if (String(err.message).includes("não configurada")) {
-          apiEnabled = false;
-          updateMode();
-          break;
+        if (error.code === "ARTIST_SOURCE_UNAVAILABLE") {
+          withoutArtists++;
+          continue;
         }
+        // Não queimar a cota procurando sucessivamente após uma falha do YouTube.
+        break;
       }
     }
-    ui.title.textContent = "Nenhuma amostra confiável encontrada.";
-    ui.artist.textContent = "Explore o gênero no Every Noise ou sorteie novamente.";
-    ui.playState.textContent = "SEM AMOSTRA VALIDADA";
+    ui.title.textContent = "Ainda sem música para esse gênero.";
+    ui.artist.textContent = "Explore no Every Noise ou tente outra descoberta.";
+    ui.playState.textContent = "SEM AMOSTRA VERIFICADA";
     updateControls();
-    say("Ainda não conseguimos associar uma faixa a esses gêneros. Você pode explorar o último no Every Noise ou continuar sorteando.");
-  } catch (_) {
-    say("Ocorreu um erro ao sortear. Tente novamente.");
-  } finally { setBusy(false); }
+
+    if (lastError?.code === "YOUTUBE_QUOTA") {
+      say("O limite diário de buscas do YouTube foi atingido. Não vamos gastar mais chamadas. Aguarde a renovação da cota ou clique em Ouvir demo.");
+    } else if (lastError?.code === "YOUTUBE_CREDENTIALS") {
+      say("O Google recusou a chave ou as permissões da YouTube Data API. Verifique as credenciais no Cloud Console.");
+    } else if (lastError?.code === "YOUTUBE_NOT_CONFIGURED") {
+      apiEnabled = false;
+      updateMode();
+      say("A chave YOUTUBE_API_KEY não está disponível no Netlify. O botão Ouvir demo continua funcionando.");
+    } else if (withoutArtists >= 3) {
+      say("Não conseguimos acessar a lista de artistas do Every Noise em três gêneros. Pode ser um bloqueio da fonte; use Ouvir demo enquanto corrigimos a integração.");
+    } else if (lastError?.code === "NO_VERIFIED_VIDEO") {
+      say("Localizamos um artista associado, mas nenhum vídeo do YouTube passou na validação. Tente outro gênero.");
+    } else {
+      say(lastError?.message || "Não foi possível obter uma amostra. Tente novamente ou use Ouvir demo.");
+    }
+  } catch (error) {
+    say("Falha de rede ou resposta inesperada. Tente novamente ou use Ouvir demo.");
+  } finally {
+    setBusy(false);
+  }
+}
+function playDemo(avoid = []) {
+  if (busy && apiEnabled) return;
+  const availableDemos = DEMO_TRACKS.filter((track) => !blockedVideos.includes(track.videoId));
+  const demo = chooseRandom(availableDemos, avoid);
+  if (!demo) {
+    say("Todas as demonstrações foram bloqueadas neste navegador.");
+    return;
+  }
+  setTrack(demo, true);
+  say("Reproduzindo uma faixa demonstrativa. Ela não representa necessariamente o gênero sorteado antes.");
 }
 function toggleFavorite() {
   if (!current) return;
@@ -391,6 +424,7 @@ async function initialize() {
   ui.restart.addEventListener("click", restart);
   ui.favorite.addEventListener("click", toggleFavorite);
   ui.report.addEventListener("click", reportNonMusic);
+  ui.demo.addEventListener("click", () => { if (!busy) playDemo([...history.slice(-5).map(t => t.genre)]); });
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
     if (event.target.closest("button, a, input, textarea, select")) return;
