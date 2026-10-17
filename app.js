@@ -47,6 +47,7 @@ let catalogSize = 5925; // Atualizado com a quantidade real no arquivo local.
 let manuallyCuratedCount = 63;
 const failedGenres = new Set();
 let apiEnabled = false;
+let apiSuspendedReason = "";
 let history = saved.history;
 let cursor = history.length - 1;
 let favorites = saved.favorites;
@@ -77,7 +78,7 @@ function updateCounts() {
   ui.discoveries.textContent = String(discoveries).padStart(2, "0");
 }
 function updateMode() {
-  ui.mode.textContent = apiEnabled ? "TODOS OS GÊNEROS" : "MODO DEMONSTRAÇÃO";
+  ui.mode.textContent = apiSuspendedReason ? "BUSCAS SUSPENSAS" : apiEnabled ? "TODOS OS GÊNEROS" : "MODO DEMONSTRAÇÃO";
   ui.note.textContent = apiEnabled
     ? "Todos os " + formatNumber(genres.length) + " gêneros participam do sorteio. " +
       formatNumber(manuallyCuratedCount) + " têm artistas mapeados localmente; para os demais o site tenta identificar artistas nas páginas do Every Noise. " +
@@ -212,7 +213,7 @@ function setTrack(track, addHistory = true) {
 function setBusy(value) {
   busy = value;
   ui.spin.disabled = value;
-  ui.spinLabel.textContent = value ? "PROCURANDO UMA FAIXA..." : current ? "SORTEAR OUTRO GÊNERO" : "SORTEAR UM GÊNERO";
+  ui.spinLabel.textContent = value ? "PROCURANDO UMA FAIXA..." : apiSuspendedReason ? "OUVIR DEMO (API INDISPONÍVEL)" : current ? "SORTEAR OUTRO GÊNERO" : "SORTEAR UM GÊNERO";
   updateControls();
 }
 async function findGenreVideo(genre) {
@@ -238,7 +239,7 @@ async function spin() {
   setBusy(true);
   try {
     const recent = [...history.slice(-7).map((t) => t.genre), ...failedGenres];
-    if (!apiEnabled) {
+    if (!apiEnabled || apiSuspendedReason) {
       playDemo(recent);
       return;
     }
@@ -285,8 +286,12 @@ async function spin() {
     updateControls();
 
     if (lastError?.code === "YOUTUBE_QUOTA") {
+      apiSuspendedReason = lastError.code;
+      updateMode();
       say("O limite diário de buscas do YouTube foi atingido. Não vamos gastar mais chamadas. Aguarde a renovação da cota ou clique em Ouvir demo.");
     } else if (lastError?.code === "YOUTUBE_CREDENTIALS") {
+      apiSuspendedReason = lastError.code;
+      updateMode();
       say("O Google recusou a chave ou as permissões da YouTube Data API. Verifique as credenciais no Cloud Console.");
     } else if (lastError?.code === "YOUTUBE_NOT_CONFIGURED") {
       apiEnabled = false;
@@ -306,7 +311,7 @@ async function spin() {
   }
 }
 function playDemo(avoid = []) {
-  if (busy && apiEnabled) return;
+  if (busy && apiEnabled && !apiSuspendedReason) return;
   const availableDemos = DEMO_TRACKS.filter((track) => !blockedVideos.includes(track.videoId));
   const demo = chooseRandom(availableDemos, avoid);
   if (!demo) {
