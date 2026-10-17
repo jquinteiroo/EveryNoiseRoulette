@@ -87,4 +87,12 @@ Todos os 5.925 gêneros participam do sorteio, mas **sorteável não significa q
 
 O backend consulta pontualmente uma página pública do Every Noise para tentar identificar artistas daquele estilo. A extração de nomes é experimental e depende da estrutura e disponibilidade da página, das regras do serviço e da rede da hospedagem. **Não assume que todo gênero será resolvido**. O sistema não transfere nem hospeda os MP3 do Every Noise e não deve tentar contornar restrições de acesso. Em caso de indisponibilidade, escolha outro gênero ou adicione uma associação manual auditável em `netlify/functions/genre-artists.mjs`.
 
-**Custos:** `search.list` na YouTube Data API custa 100 unidades por pesquisa. Sem cache persistente compartilhado, muitas consultas podem consumir rapidamente a cota padrão diária. Para produção, armazenar resultados validados num catálogo próprio e implementar limite de requisições/rate-limit por usuário. O cache atual é temporário no servidor e no navegador.
+**Limite de buscas atualizado (documentação Google de 15/10/2026):** `search.list` tem um teto padrão próprio de **100 chamadas/dia**, consumindo **uma unidade desse teto por requisição**; as demais operações têm sua própria cota de unidades. A implementação anterior podia fazer oito chamadas num clique, e 13 sorteios difíceis poderiam estourar esse limite. A versão atual realiza **no máximo uma busca do YouTube por sorteio**, parando imediatamente em erro de cota ou credenciais. A consulta de artistas ainda pode falhar: o sistema tenta o site original e a página pública histórica do autor em furia.com, retorna a causa técnica no campo `code` e oferece a opção de ouvir músicas demonstrativas sem API. O cache é temporário e não substitui um catálogo persistente validado. Fonte: https://developers.google.com/youtube/data/determine_quota_cost
+
+## Diagnóstico de reprodução
+
+- `YOUTUBE_QUOTA` (HTTP 429): limite diário atingido, aguarde o reset ou veja no Cloud Console > APIs e serviços > Cotas. O app não deve continuar buscando quando isso acontecer.
+- `YOUTUBE_CREDENTIALS`: conferir permissões da API/chave Google Cloud.
+- `ARTIST_SOURCE_UNAVAILABLE` (HTTP 424): não foi possível extrair os artistas da página pública do gênero. Testar acesso à origem/mirror da hospedagem.
+- `NO_VERIFIED_VIDEO`: o gênero tem um artista conhecido, mas não foi encontrado um vídeo que passe nos filtros.
+- O botão **Ouvir demo** usa os seis exemplos cadastrados, sem pesquisar o YouTube. Não é um substituto para a cobertura dos 5.925 gêneros.
