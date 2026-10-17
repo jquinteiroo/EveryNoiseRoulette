@@ -79,7 +79,9 @@ function updateCounts() {
 }
 function updateMode() {
   ui.mode.textContent = apiSuspendedReason ? "BUSCAS SUSPENSAS" : apiEnabled ? "TODOS OS GÊNEROS" : "MODO DEMONSTRAÇÃO";
-  ui.note.textContent = apiEnabled
+  ui.note.textContent = apiSuspendedReason
+    ? "A busca do YouTube foi temporariamente suspensa por limite diário ou erro de credenciais. O catálogo continua com " + formatNumber(genres.length) + " gêneros, mas a reprodução agora usa exemplos demonstrativos até você atualizar após resolver o problema."
+    : apiEnabled
     ? "Todos os " + formatNumber(genres.length) + " gêneros participam do sorteio. " +
       formatNumber(manuallyCuratedCount) + " têm artistas mapeados localmente; para os demais o site tenta identificar artistas nas páginas do Every Noise. " +
       "Quando não encontra uma associação confiável, tenta outro gênero. Nem toda música do artista necessariamente pertence ao estilo sorteado."
