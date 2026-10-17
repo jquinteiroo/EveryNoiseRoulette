@@ -1,6 +1,6 @@
 // Nunca exponha YOUTUBE_API_KEY no frontend: todas as consultas passam pelo Netlify.
 import { GENRE_ARTISTS } from "./genre-artists.mjs";
-import { getGenreArtistsFromEveryNoise } from "./every-noise-artists.mjs";
+import { resolveGenreArtists } from "./every-noise-artists.mjs";
 
 const cache = new Map();
 const TTL = 12 * 60 * 60 * 1000;
@@ -44,8 +44,20 @@ async function youtube(endpoint, params, key) {
   const result = await fetch(url, { signal: AbortSignal.timeout(8500) });
   const body = await result.json().catch(() => ({}));
   if (!result.ok) {
-    if (result.status === 403) throw new Error("Limite de buscas do YouTube ou permissão da API indisponível.");
-    throw new Error("Falha temporária na busca do YouTube.");
+    const reason = String(body?.error?.errors?.[0]?.reason || body?.error?.status || "");
+    if (result.status === 429 || /quota|dailylimit|ratelimit|resource_exhausted/i.test(reason)) {
+      const error = new Error("A cota diária de buscas do YouTube foi atingida. Tente amanhã.");
+      error.code = "YOUTUBE_QUOTA";
+      throw error;
+    }
+    if (result.status === 400 || result.status === 403) {
+      const error = new Error("O Google recusou a chave ou as permissões da API.");
+      error.code = "YOUTUBE_CREDENTIALS";
+      throw error;
+    }
+    const error = new Error("Falha temporária na busca do YouTube.");
+    error.code = "YOUTUBE_REQUEST_FAILED";
+    throw error;
   }
   return body;
 }
@@ -128,21 +140,23 @@ export default async function handler(request) {
   if (stored && Date.now() - stored.at < TTL && !excluded.has(stored.track.videoId)) return json(stored.track);
   try {
     const hasManualMap = Object.hasOwn(GENRE_ARTISTS, genre);
-    const artists = hasManualMap
-      ? GENRE_ARTISTS[genre]
-      : await getGenreArtistsFromEveryNoise(genre);
+    const resolved = hasManualMap
+      ? { artists: GENRE_ARTISTS[genre], source: "curated", reason: null }
+      : await resolveGenreArtists(genre);
+    const artists = resolved.artists;
     if (!artists.length) {
       return json({
-        error: "Não foi possível confirmar artistas associados a esse gênero. Tente outro sorteio.",
+        code: "ARTIST_SOURCE_UNAVAILABLE",
+        error: "Não foi possível consultar os artistas deste gênero no Every Noise.",
         genre,
-        genrePage: "https://everynoise.com/engenremap-" +
-          genre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "") + ".html",
-      }, 404);
+        sourceReason: resolved.reason,
+      }, 424);
     }
     // O nome do gênero não basta: somente tocamos vídeos creditados a um
     // artista que o Every Noise ou a curadoria associaram a ele.
-    // Até duas consultas, para limitar a cota do YouTube.
-    for (const artist of randomizedArtists(artists).slice(0, 2)) {
+    // Apenas uma pesquisa no YouTube por gênero solicitado.
+    // search.list tem um limite diário próprio, distinto da cota geral.
+    for (const artist of randomizedArtists(artists).slice(0, 1)) {
       const result = await searchArtist(artist, excluded, key);
       if (!result) continue;
       const track = {
@@ -152,14 +166,19 @@ export default async function handler(request) {
         duration: result.duration,
         matchedArtist: artist,
         matchMethod: "genre-artist",
-        artistSource: hasManualMap ? "curated" : "every-noise",
+        artistSource: resolved.source,
       };
       cache.set(genre, { at: Date.now(), track });
       if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
       return json(track);
     }
-    return json({ error: "Não foi encontrada uma faixa confiável dos artistas associados. Sorteie outro gênero." }, 404);
+    return json({
+      code: "NO_VERIFIED_VIDEO",
+      error: "Não foi possível validar uma gravação do artista deste gênero no YouTube.",
+    }, 404);
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Erro temporário no YouTube." }, 502);
+    const code = error?.code || "SEARCH_FAILED";
+    const status = code === "YOUTUBE_QUOTA" ? 429 : code === "YOUTUBE_CREDENTIALS" ? 502 : 502;
+    return json({ code, error: error instanceof Error ? error.message : "Erro temporário no YouTube." }, status);
   }
 }
